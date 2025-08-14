@@ -1,0 +1,40 @@
+# Go binaries and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Coverage and profiling outputs
+*.out
+coverage*.out
+profile*.out
+
+# Build artifacts
+bin/
+dist/
+build/
+
+# Go workspace file
+go.work
+
+# Dependencies (uncomment if you vendor deps)
+# vendor/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment/secrets
+.env
+.env.*
+*.json
