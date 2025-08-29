@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"gogemini-practices/internal/formatting"
+
 	"google.golang.org/api/slides/v1"
 )
 
@@ -26,6 +28,7 @@ func WriteTopics(ctx context.Context, svc *slides.Service, presentationID string
 	need := len(topics)
 
 	var requests []*slides.Request
+	processor := formatting.NewTextProcessor()
 
 	targetSlideIDs := make([]string, 0, need)
 	for i := 0; i < need && i < existing; i++ {
@@ -45,6 +48,7 @@ func WriteTopics(ctx context.Context, svc *slides.Service, presentationID string
 		titleID := fmt.Sprintf("auto_title_%d", i)
 		bodyID := fmt.Sprintf("auto_body_%d", i)
 
+		// Create title text box
 		requests = append(requests,
 			&slides.Request{CreateShape: &slides.CreateShapeRequest{
 				ObjectId:  titleID,
@@ -58,9 +62,14 @@ func WriteTopics(ctx context.Context, svc *slides.Service, presentationID string
 					Transform: &slides.AffineTransform{ScaleX: 1, ScaleY: 1, TranslateX: 50, TranslateY: 50, Unit: "PT"},
 				},
 			}},
-			&slides.Request{InsertText: &slides.InsertTextRequest{ObjectId: titleID, InsertionIndex: 0, Text: topics[i].Title}},
 		)
 
+		// Process title formatting
+		titleSegments := processor.ParseMarkup(topics[i].Title)
+		titleRequests := processor.ToSlidesRequests(titleSegments, titleID)
+		requests = append(requests, titleRequests...)
+
+		// Create body text box
 		requests = append(requests,
 			&slides.Request{CreateShape: &slides.CreateShapeRequest{
 				ObjectId:  bodyID,
@@ -74,8 +83,12 @@ func WriteTopics(ctx context.Context, svc *slides.Service, presentationID string
 					Transform: &slides.AffineTransform{ScaleX: 1, ScaleY: 1, TranslateX: 50, TranslateY: 130, Unit: "PT"},
 				},
 			}},
-			&slides.Request{InsertText: &slides.InsertTextRequest{ObjectId: bodyID, InsertionIndex: 0, Text: topics[i].Summary}},
 		)
+
+		// Process body formatting
+		bodySegments := processor.ParseMarkup(topics[i].Summary)
+		bodyRequests := processor.ToSlidesRequests(bodySegments, bodyID)
+		requests = append(requests, bodyRequests...)
 	}
 
 	if len(requests) == 0 {
