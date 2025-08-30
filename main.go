@@ -195,6 +195,17 @@ func buildPrompt(subject, audience, tone string, max int) string {
 	b.WriteString("\nRules: Max ")
 	b.WriteString(fmt.Sprintf("%d", max))
 	b.WriteString(" items. Each summary <= 280 chars. No extra fields. No prose outside JSON. Do not use code fences or backticks.\n\n")
+
+	b.WriteString("FORMATTING INSTRUCTIONS:\n")
+	b.WriteString("- Use **text** to mark key information that should be bold\n")
+	b.WriteString("- Use • for main bullet points of core information\n")
+	b.WriteString("- Use   ◦ for sub-bullets (indented points)\n")
+	b.WriteString("- Keep summaries <= 280 chars including markup\n\n")
+
+	b.WriteString("Example summary format:\n")
+	b.WriteString(`"**Machine Learning** revolutionizes healthcare through:\n• **Diagnostic accuracy** - 95% improvement in imaging\n• **Drug discovery** - Reduces time by **40%**\n  ◦ Protein folding prediction\n  ◦ Molecular simulation"`)
+	b.WriteString("\n\n")
+
 	b.WriteString("Inputs:\n")
 	b.WriteString("Subject: ")
 	b.WriteString(subject)
@@ -206,7 +217,7 @@ func buildPrompt(subject, audience, tone string, max int) string {
 		b.WriteString("\nTone: ")
 		b.WriteString(tone)
 	}
-	b.WriteString("\nTask: Propose the most relevant topics and a concise summary for each.")
+	b.WriteString("\nTask: Propose the most relevant topics and a concise summary for each using the formatting markup above.")
 	return b.String()
 }
 
