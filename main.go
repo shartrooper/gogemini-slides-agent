@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -15,9 +16,23 @@ import (
 	genai "google.golang.org/genai"
 )
 
+type DataPoint struct {
+	Label string  `json:"label"`
+	Value float64 `json:"value"`
+}
+
+type Dataset struct {
+	Title  string      `json:"title,omitempty"`
+	Unit   string      `json:"unit,omitempty"`
+	Type   string      `json:"type,omitempty"` // timeseries | category | comparison
+	Points []DataPoint `json:"points"`
+}
+
 type TopicSummary struct {
-	Topic   string `json:"topic"`
-	Summary string `json:"summary"`
+	Topic        string   `json:"topic"`
+	Summary      string   `json:"summary"`
+	Quantifiable bool     `json:"quantifiable,omitempty"`
+	Dataset      *Dataset `json:"dataset,omitempty"`
 }
 
 type Meta struct {
@@ -93,6 +108,7 @@ func main() {
 	for i := range topics {
 		topics[i].Topic = strings.TrimSpace(topics[i].Topic)
 		topics[i].Summary = strings.TrimSpace(topics[i].Summary)
+		sanitizeDataset(&topics[i])
 	}
 
 	meta := Meta{Model: *model, LatencyMs: time.Since(started).Milliseconds()}
@@ -191,7 +207,7 @@ func buildPrompt(subject, audience, tone string, max int) string {
 	var b strings.Builder
 	b.WriteString("You are an expert presentation planner.\n")
 	b.WriteString("Return JSON only, matching this schema: ")
-	b.WriteString(`[{"topic":"string","summary":"string"}]`)
+	b.WriteString(`[{"topic":"string","summary":"string","quantifiable":boolean,"dataset":{"title":"string","unit":"string","type":"timeseries|category|comparison","points":[{"label":"string","value":number}]}}]`)
 	b.WriteString("\nRules: Max ")
 	b.WriteString(fmt.Sprintf("%d", max))
 	b.WriteString(" items. Each summary <= 280 chars. No extra fields. No prose outside JSON. Do not use code fences or backticks.\n\n")
@@ -202,9 +218,21 @@ func buildPrompt(subject, audience, tone string, max int) string {
 	b.WriteString("- Use   ◦ for sub-bullets (indented points)\n")
 	b.WriteString("- Keep summaries <= 280 chars including markup\n\n")
 
+	b.WriteString("QUANTIFIABILITY & DATASET RULES:\n")
+	b.WriteString("- Set quantifiable=true only if the subject can be represented with numeric data points.\n")
+	b.WriteString("- If quantifiable=true, include a compact dataset with <= 12 points that supports a chart.\n")
+	b.WriteString("- Choose dataset.type: 'timeseries' for time-based, 'category' for categorical bars, 'comparison' for A vs B.\n")
+	b.WriteString("- Use clear 'label' strings (e.g., '1990s', 'Q1 2024', 'Ferrari', 'Williams').\n")
+	b.WriteString("- 'value' must be a number (no symbols). Include 'unit' if relevant (%, people, points).\n\n")
+
 	b.WriteString("Example summary format:\n")
 	b.WriteString(`"**Machine Learning** revolutionizes healthcare through:\n• **Diagnostic accuracy** - 95% improvement in imaging\n• **Drug discovery** - Reduces time by **40%**\n  ◦ Protein folding prediction\n  ◦ Molecular simulation"`)
 	b.WriteString("\n\n")
+
+	b.WriteString("Example quantifiable subjects:\n")
+	b.WriteString("- Population growth of New York City by decades → timeseries (unit: people)\n")
+	b.WriteString("- Ferrari vs Williams F1 pilots performance in the last grand prix → comparison (unit: points)\n")
+	b.WriteString("- Evolution of videogame company Steam → timeseries (unit: MAU or revenue)\n\n")
 
 	b.WriteString("Inputs:\n")
 	b.WriteString("Subject: ")
@@ -217,8 +245,41 @@ func buildPrompt(subject, audience, tone string, max int) string {
 		b.WriteString("\nTone: ")
 		b.WriteString(tone)
 	}
-	b.WriteString("\nTask: Propose the most relevant topics and a concise summary for each using the formatting markup above.")
+	b.WriteString("\nTask: Propose the most relevant topics and a concise summary for each using the formatting markup above. Decide if each is quantifiable and include a compact dataset when appropriate.")
 	return b.String()
+}
+
+func sanitizeDataset(t *TopicSummary) {
+	if t == nil || t.Dataset == nil {
+		return
+	}
+	const maxPoints = 20
+	if len(t.Dataset.Points) > maxPoints {
+		t.Dataset.Points = t.Dataset.Points[:maxPoints]
+	}
+	valid := make([]DataPoint, 0, len(t.Dataset.Points))
+	for _, p := range t.Dataset.Points {
+		label := strings.TrimSpace(p.Label)
+		if label == "" {
+			continue
+		}
+		if math.IsNaN(p.Value) || math.IsInf(p.Value, 0) {
+			continue
+		}
+		valid = append(valid, DataPoint{Label: label, Value: p.Value})
+	}
+	t.Dataset.Points = valid
+	if len(t.Dataset.Points) == 0 {
+		t.Dataset = nil
+		t.Quantifiable = false
+	} else {
+		t.Quantifiable = true
+	}
+	switch strings.ToLower(strings.TrimSpace(t.Dataset.Type)) {
+	case "timeseries", "category", "comparison":
+	default:
+		t.Dataset.Type = "category"
+	}
 }
 
 func firstNonEmpty(values ...string) string {
@@ -230,7 +291,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// extractJSON tries to strip code fences/backticks and isolate the first JSON array or object.
 func extractJSON(raw string) string {
 	s := strings.TrimSpace(raw)
 	if strings.HasPrefix(s, "```") {
@@ -242,11 +302,10 @@ func extractJSON(raw string) string {
 		}
 		s = strings.TrimSpace(s)
 	}
-	// Try to isolate JSON array/object from any surrounding prose
 	if i := strings.IndexAny(s, "[{"); i != -1 {
 		s = s[i:]
 	}
-	// Prefer array (expected schema), else object
+
 	if strings.HasPrefix(s, "[") {
 		if j := strings.LastIndex(s, "]"); j != -1 {
 			return strings.TrimSpace(s[:j+1])
