@@ -272,9 +272,9 @@ func sanitizeDataset(t *TopicSummary) {
 	if len(t.Dataset.Points) == 0 {
 		t.Dataset = nil
 		t.Quantifiable = false
-	} else {
-		t.Quantifiable = true
+		return
 	}
+	t.Quantifiable = true
 	switch strings.ToLower(strings.TrimSpace(t.Dataset.Type)) {
 	case "timeseries", "category", "comparison":
 	default:
