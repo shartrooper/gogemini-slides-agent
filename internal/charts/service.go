@@ -114,34 +114,41 @@ func CreateSheetsChart(ctx context.Context, sheetsSvc *sheets.Service, ds Datase
 }
 
 // BuildEmbedRequests creates Slides requests to embed the given Sheets chart into a slide.
-// Position and size are in points (PT). If width/height are zero, sensible defaults are used.
-func BuildEmbedRequests(spreadsheetID string, chartID int64, pageObjectID string, xPT, yPT, widthPT, heightPT float64) []*slides.Request {
-	if widthPT <= 0 {
-		widthPT = 500
+// Position and size use EMU units to match official examples.
+func BuildEmbedRequests(spreadsheetID string, chartID int64, pageObjectID string, objectID string, xEMU, yEMU, widthEMU, heightEMU float64) []*slides.Request {
+	if objectID == "" {
+		objectID = "MyEmbeddedChart"
 	}
-	if heightPT <= 0 {
-		heightPT = 300
+	if widthEMU <= 0 {
+		widthEMU = 4000000
 	}
-	if xPT < 0 {
-		xPT = 60
+	if heightEMU <= 0 {
+		heightEMU = 4000000
 	}
-	if yPT < 0 {
-		yPT = 160
+	if xEMU < 0 {
+		xEMU = 100000
 	}
+	if yEMU < 0 {
+		yEMU = 100000
+	}
+
+	emuW := slides.Dimension{Magnitude: widthEMU, Unit: "EMU"}
+	emuH := slides.Dimension{Magnitude: heightEMU, Unit: "EMU"}
 
 	return []*slides.Request{
 		{
 			CreateSheetsChart: &slides.CreateSheetsChartRequest{
+				ObjectId:      objectID,
 				SpreadsheetId: spreadsheetID,
 				ChartId:       chartID,
 				LinkingMode:   "LINKED",
 				ElementProperties: &slides.PageElementProperties{
 					PageObjectId: pageObjectID,
 					Size: &slides.Size{
-						Width:  &slides.Dimension{Magnitude: widthPT, Unit: "PT"},
-						Height: &slides.Dimension{Magnitude: heightPT, Unit: "PT"},
+						Height: &emuH,
+						Width:  &emuW,
 					},
-					Transform: &slides.AffineTransform{ScaleX: 1, ScaleY: 1, TranslateX: xPT, TranslateY: yPT, Unit: "PT"},
+					Transform: &slides.AffineTransform{ScaleX: 1.0, ScaleY: 1.0, TranslateX: xEMU, TranslateY: yEMU, Unit: "EMU"},
 				},
 			},
 		},

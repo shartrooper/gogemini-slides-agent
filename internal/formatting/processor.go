@@ -3,6 +3,7 @@ package formatting
 import (
 	"regexp"
 	"strings"
+	"unicode/utf16"
 
 	"google.golang.org/api/slides/v1"
 )
@@ -110,13 +111,14 @@ func (tp *TextProcessor) ToSlidesRequests(segments []TextSegment, objectID strin
 	var boldRanges []struct{ start, end int }
 	var bulletRanges []struct{ start, end, level int }
 
-	currentPos := 0
+	currentPos := 0 // UTF-16 code units
 	bulletStart := -1
 	currentBulletLevel := -1
 
 	for _, segment := range segments {
 		segmentStart := currentPos
-		segmentEnd := currentPos + len(segment.Text)
+		segmentLen := utf16Len(segment.Text)
+		segmentEnd := segmentStart + segmentLen
 
 		plainText += segment.Text
 
@@ -134,7 +136,7 @@ func (tp *TextProcessor) ToSlidesRequests(segments []TextSegment, objectID strin
 		} else if bulletStart != -1 {
 			// End of bullet section
 			bulletRanges = append(bulletRanges, struct{ start, end, level int }{
-				bulletStart, currentPos, currentBulletLevel,
+				bulletStart, segmentStart, currentBulletLevel,
 			})
 			bulletStart = -1
 		}
@@ -168,7 +170,9 @@ func (tp *TextProcessor) ToSlidesRequests(segments []TextSegment, objectID strin
 				Style: &slides.TextStyle{
 					Bold: true,
 				},
+				Fields: "bold",
 				TextRange: &slides.Range{
+					Type:       "FIXED_RANGE",
 					StartIndex: &startIdx,
 					EndIndex:   &endIdx,
 				},
@@ -180,7 +184,7 @@ func (tp *TextProcessor) ToSlidesRequests(segments []TextSegment, objectID strin
 	for _, bulletRange := range bulletRanges {
 		bulletPreset := "BULLET_DISC_CIRCLE_SQUARE"
 		if bulletRange.level == 1 {
-			bulletPreset = "BULLET_HOLLOW_CIRCLE_SQUARE"
+			bulletPreset = "BULLET_ARROW_DIAMOND_DISC"
 		}
 
 		startIdx := int64(bulletRange.start)
@@ -189,6 +193,7 @@ func (tp *TextProcessor) ToSlidesRequests(segments []TextSegment, objectID strin
 			CreateParagraphBullets: &slides.CreateParagraphBulletsRequest{
 				ObjectId: objectID,
 				TextRange: &slides.Range{
+					Type:       "FIXED_RANGE",
 					StartIndex: &startIdx,
 					EndIndex:   &endIdx,
 				},
@@ -216,4 +221,8 @@ func (tp *TextProcessor) CleanText(text string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func utf16Len(s string) int {
+	return len(utf16.Encode([]rune(s)))
 }

@@ -11,7 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"gogemini-practices/internal/presentation"
+
 	"github.com/joho/godotenv"
+	"google.golang.org/api/option"
+	"google.golang.org/api/sheets/v4"
 	"google.golang.org/api/slides/v1"
 	genai "google.golang.org/genai"
 )
@@ -136,70 +140,43 @@ func main() {
 			log.Printf("read creds: %v", err)
 			return
 		}
-		svc, err := slides.NewService(ctx)
+		slidesSvc, err := slides.NewService(ctx,
+			option.WithCredentialsFile(credsPath),
+			option.WithScopes(slides.PresentationsScope),
+		)
 		if err != nil {
 			log.Printf("slides.NewService: %v", err)
 			return
 		}
-		// Map our topics to presentation topics
-		var pts []struct{ Title, Summary string }
-		for _, t := range topics {
-			pts = append(pts, struct{ Title, Summary string }{Title: t.Topic, Summary: t.Summary})
-		}
-		// Use direct API requests here to avoid cross-package import for now.
-		// Fetch existing presentation
-		pres, err := svc.Presentations.Get(*presentationID).Do()
+		sheetsSvc, err := sheets.NewService(ctx,
+			option.WithCredentialsFile(credsPath),
+			option.WithScopes(sheets.SpreadsheetsScope),
+		)
 		if err != nil {
-			log.Printf("get presentation: %v", err)
+			log.Printf("sheets.NewService: %v", err)
 			return
 		}
-		existing := len(pres.Slides)
-		need := len(pts)
-		var requests []*slides.Request
-		targetSlideIDs := make([]string, 0, need)
-		for i := 0; i < need && i < existing; i++ {
-			targetSlideIDs = append(targetSlideIDs, pres.Slides[i].ObjectId)
-		}
-		for i := existing; i < need; i++ {
-			slideID := fmt.Sprintf("cli_auto_slide_%d", i)
-			targetSlideIDs = append(targetSlideIDs, slideID)
-			requests = append(requests, &slides.Request{CreateSlide: &slides.CreateSlideRequest{
-				ObjectId:             slideID,
-				SlideLayoutReference: &slides.LayoutReference{PredefinedLayout: "BLANK"},
-			}})
-		}
-		for i := 0; i < need; i++ {
-			slideID := targetSlideIDs[i]
-			titleID := fmt.Sprintf("cli_auto_title_%d", i)
-			bodyID := fmt.Sprintf("cli_auto_body_%d", i)
-			requests = append(requests,
-				&slides.Request{CreateShape: &slides.CreateShapeRequest{
-					ObjectId:  titleID,
-					ShapeType: "TEXT_BOX",
-					ElementProperties: &slides.PageElementProperties{
-						PageObjectId: slideID,
-						Size:         &slides.Size{Width: &slides.Dimension{Magnitude: 600, Unit: "PT"}, Height: &slides.Dimension{Magnitude: 60, Unit: "PT"}},
-						Transform:    &slides.AffineTransform{ScaleX: 1, ScaleY: 1, TranslateX: 50, TranslateY: 50, Unit: "PT"},
-					},
-				}},
-				&slides.Request{InsertText: &slides.InsertTextRequest{ObjectId: titleID, InsertionIndex: 0, Text: pts[i].Title}},
-				&slides.Request{CreateShape: &slides.CreateShapeRequest{
-					ObjectId:  bodyID,
-					ShapeType: "TEXT_BOX",
-					ElementProperties: &slides.PageElementProperties{
-						PageObjectId: slideID,
-						Size:         &slides.Size{Width: &slides.Dimension{Magnitude: 600, Unit: "PT"}, Height: &slides.Dimension{Magnitude: 300, Unit: "PT"}},
-						Transform:    &slides.AffineTransform{ScaleX: 1, ScaleY: 1, TranslateX: 50, TranslateY: 130, Unit: "PT"},
-					},
-				}},
-				&slides.Request{InsertText: &slides.InsertTextRequest{ObjectId: bodyID, InsertionIndex: 0, Text: pts[i].Summary}},
-			)
-		}
-		if len(requests) > 0 {
-			if _, err := svc.Presentations.BatchUpdate(*presentationID, &slides.BatchUpdatePresentationRequest{Requests: requests}).Do(); err != nil {
-				log.Printf("slides batch update: %v", err)
+
+		// Map topics to RichTopic (with optional dataset) and write with charts
+		var rich []presentation.RichTopic
+		for _, t := range topics {
+			rt := presentation.RichTopic{Title: t.Topic, Summary: t.Summary}
+			if t.Dataset != nil && len(t.Dataset.Points) > 0 {
+				cd := &presentation.ChartDataset{Title: t.Dataset.Title, Unit: t.Dataset.Unit, Type: t.Dataset.Type}
+				for _, p := range t.Dataset.Points {
+					cd.Points = append(cd.Points, struct {
+						Label string
+						Value float64
+					}{Label: p.Label, Value: p.Value})
+				}
+				rt.Dataset = cd
 			}
+			rich = append(rich, rt)
 		}
+		if err := presentation.WriteTopicsWithCharts(ctx, slidesSvc, sheetsSvc, *presentationID, rich); err != nil {
+			log.Printf("WriteTopicsWithCharts: %v", err)
+		}
+		return
 	}
 }
 

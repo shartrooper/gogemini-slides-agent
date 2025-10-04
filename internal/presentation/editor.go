@@ -7,6 +7,7 @@ import (
 	"gogemini-practices/internal/charts"
 	"gogemini-practices/internal/formatting"
 
+	"github.com/google/uuid"
 	"google.golang.org/api/sheets/v4"
 	"google.golang.org/api/slides/v1"
 )
@@ -65,8 +66,9 @@ func WriteTopics(ctx context.Context, svc *slides.Service, presentationID string
 
 	for i := range need {
 		slideID := targetSlideIDs[i]
-		titleID := fmt.Sprintf("auto_title_%d", i)
-		bodyID := fmt.Sprintf("auto_body_%d", i)
+		suffix := uuid.New().String()[:8]
+		titleID := fmt.Sprintf("auto_title_%d_%s", i, suffix)
+		bodyID := fmt.Sprintf("auto_body_%d_%s", i, suffix)
 
 		// Create title text box
 		requests = append(requests,
@@ -161,8 +163,9 @@ func WriteTopicsWithCharts(ctx context.Context, slidesSvc *slides.Service, sheet
 
 	for i := range need {
 		slideID := targetSlideIDs[i]
-		titleID := fmt.Sprintf("auto_title_%d", i)
-		bodyID := fmt.Sprintf("auto_body_%d", i)
+		suffix := uuid.New().String()[:8]
+		titleID := fmt.Sprintf("auto_title_%d_%s", i, suffix)
+		bodyID := fmt.Sprintf("auto_body_%d_%s", i, suffix)
 
 		requests = append(requests,
 			&slides.Request{CreateShape: &slides.CreateShapeRequest{
@@ -211,12 +214,12 @@ func WriteTopicsWithCharts(ctx context.Context, slidesSvc *slides.Service, sheet
 			}
 			spreadsheetID, chartID, err := charts.CreateSheetsChart(ctx, sheetsSvc, ds)
 			if err == nil {
-				// Embed chart at a default position/size below the body text box
-				embed := charts.BuildEmbedRequests(spreadsheetID, chartID, slideID, 380, 130, 300, 220)
+				chartObjectID := fmt.Sprintf("auto_chart_%d_%s", i, suffix)
+				// Position near the right side, below title; EMU units as in examples
+				embed := charts.BuildEmbedRequests(spreadsheetID, chartID, slideID, chartObjectID, 100000.0, 160000.0, 4000000.0, 3000000.0)
 				requests = append(requests, embed...)
 			} else {
-				// If chart creation fails, continue without chart
-				// You may log the error in the caller
+				// continue without chart
 			}
 		}
 	}
