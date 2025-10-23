@@ -53,7 +53,17 @@ func WriteTopics(ctx context.Context, svc *slides.Service, presentationID string
 
 	targetSlideIDs := make([]string, 0, need)
 	for i := 0; i < need && i < existing; i++ {
-		targetSlideIDs = append(targetSlideIDs, pres.Slides[i].ObjectId)
+		slide := pres.Slides[i]
+		if slide == nil {
+			continue
+		}
+		for _, el := range slide.PageElements {
+			if el == nil || el.ObjectId == "" {
+				continue
+			}
+			requests = append(requests, &slides.Request{DeleteObject: &slides.DeleteObjectRequest{ObjectId: el.ObjectId}})
+		}
+		targetSlideIDs = append(targetSlideIDs, slide.ObjectId)
 	}
 	for i := existing; i < need; i++ {
 		slideID := fmt.Sprintf("auto_slide_%d", i)
@@ -150,7 +160,17 @@ func WriteTopicsWithCharts(ctx context.Context, slidesSvc *slides.Service, sheet
 
 	targetSlideIDs := make([]string, 0, need)
 	for i := 0; i < need && i < existing; i++ {
-		targetSlideIDs = append(targetSlideIDs, pres.Slides[i].ObjectId)
+		slide := pres.Slides[i]
+		if slide == nil {
+			continue
+		}
+		for _, el := range slide.PageElements {
+			if el == nil || el.ObjectId == "" {
+				continue
+			}
+			requests = append(requests, &slides.Request{DeleteObject: &slides.DeleteObjectRequest{ObjectId: el.ObjectId}})
+		}
+		targetSlideIDs = append(targetSlideIDs, slide.ObjectId)
 	}
 	for i := existing; i < need; i++ {
 		slideID := fmt.Sprintf("auto_slide_%d", i)
@@ -213,14 +233,13 @@ func WriteTopicsWithCharts(ctx context.Context, slidesSvc *slides.Service, sheet
 				ds.Points = append(ds.Points, charts.Point{Label: p.Label, Value: p.Value})
 			}
 			spreadsheetID, chartID, err := charts.CreateSheetsChart(ctx, sheetsSvc, ds)
-			if err == nil {
-				chartObjectID := fmt.Sprintf("auto_chart_%d_%s", i, suffix)
-				// Position near the right side, below title; EMU units as in examples
-				embed := charts.BuildEmbedRequests(spreadsheetID, chartID, slideID, chartObjectID, 100000.0, 160000.0, 4000000.0, 3000000.0)
-				requests = append(requests, embed...)
-			} else {
-				// continue without chart
+			if err != nil {
+				return fmt.Errorf("create sheets chart for topic %q: %w", topics[i].Title, err)
 			}
+			chartObjectID := fmt.Sprintf("auto_chart_%d_%s", i, suffix)
+			// Position near the right side, below title; EMU units as in examples
+			embed := charts.BuildEmbedRequests(spreadsheetID, chartID, slideID, chartObjectID, 100000.0, 160000.0, 4000000.0, 3000000.0)
+			requests = append(requests, embed...)
 		}
 	}
 

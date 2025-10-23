@@ -14,6 +14,7 @@ import (
 	"gogemini-practices/internal/presentation"
 
 	"github.com/joho/godotenv"
+	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 	"google.golang.org/api/slides/v1"
@@ -142,7 +143,7 @@ func main() {
 		}
 		slidesSvc, err := slides.NewService(ctx,
 			option.WithCredentialsFile(credsPath),
-			option.WithScopes(slides.PresentationsScope),
+			option.WithScopes(slides.PresentationsScope, drive.DriveScope),
 		)
 		if err != nil {
 			log.Printf("slides.NewService: %v", err)
@@ -150,7 +151,7 @@ func main() {
 		}
 		sheetsSvc, err := sheets.NewService(ctx,
 			option.WithCredentialsFile(credsPath),
-			option.WithScopes(sheets.SpreadsheetsScope),
+			option.WithScopes(sheets.SpreadsheetsScope, drive.DriveScope),
 		)
 		if err != nil {
 			log.Printf("sheets.NewService: %v", err)
