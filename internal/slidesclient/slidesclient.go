@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 	"google.golang.org/api/slides/v1"
 )
@@ -16,7 +17,7 @@ func NewFromJSON(ctx context.Context, serviceAccountJSON []byte) (*slides.Servic
 	svc, err := slides.NewService(
 		ctx,
 		option.WithCredentialsJSON(serviceAccountJSON),
-		option.WithScopes(slides.PresentationsScope),
+		option.WithScopes(slides.PresentationsScope, drive.DriveScope),
 	)
 	if err != nil {
 		return nil, err

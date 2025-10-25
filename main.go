@@ -14,6 +14,7 @@ import (
 	"gogemini-practices/internal/presentation"
 
 	"github.com/joho/godotenv"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
@@ -136,26 +137,49 @@ func main() {
 			log.Println("GOOGLE_APPLICATION_CREDENTIALS not set; skipping Slides editing")
 			return
 		}
-		_, err := os.ReadFile(credsPath)
+		credsBytes, err := os.ReadFile(credsPath)
 		if err != nil {
 			log.Printf("read creds: %v", err)
 			return
 		}
-		slidesSvc, err := slides.NewService(ctx,
-			option.WithCredentialsFile(credsPath),
-			option.WithScopes(slides.PresentationsScope, drive.DriveScope),
-		)
-		if err != nil {
-			log.Printf("slides.NewService: %v", err)
-			return
-		}
-		sheetsSvc, err := sheets.NewService(ctx,
-			option.WithCredentialsFile(credsPath),
-			option.WithScopes(sheets.SpreadsheetsScope, drive.DriveScope),
-		)
-		if err != nil {
-			log.Printf("sheets.NewService: %v", err)
-			return
+		userEmail := os.Getenv("GOOGLE_IMPERSONATE_USER")
+
+		var slidesSvc *slides.Service
+		var sheetsSvc *sheets.Service
+
+		if userEmail != "" {
+			config, err := google.JWTConfigFromJSON(credsBytes, slides.PresentationsScope, drive.DriveScope, sheets.SpreadsheetsScope)
+			if err != nil {
+				log.Printf("google.JWTConfigFromJSON: %v", err)
+				return
+			}
+			config.Subject = userEmail
+			client := config.Client(ctx)
+			slidesSvc, err = slides.NewService(ctx, option.WithHTTPClient(client))
+			if err != nil {
+				log.Printf("slides.NewService: %v", err)
+				return
+			}
+			sheetsSvc, err = sheets.NewService(ctx, option.WithHTTPClient(client))
+			if err != nil {
+				log.Printf("sheets.NewService: %v", err)
+				return
+			}
+		} else {
+			opts := []option.ClientOption{
+				option.WithCredentialsJSON(credsBytes),
+				option.WithScopes(slides.PresentationsScope, drive.DriveScope, sheets.SpreadsheetsScope),
+			}
+			slidesSvc, err = slides.NewService(ctx, opts...)
+			if err != nil {
+				log.Printf("slides.NewService: %v", err)
+				return
+			}
+			sheetsSvc, err = sheets.NewService(ctx, opts...)
+			if err != nil {
+				log.Printf("sheets.NewService: %v", err)
+				return
+			}
 		}
 
 		// Map topics to RichTopic (with optional dataset) and write with charts
