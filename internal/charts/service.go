@@ -3,6 +3,7 @@ package charts
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"google.golang.org/api/sheets/v4"
 	"google.golang.org/api/slides/v1"
@@ -22,33 +23,37 @@ type DatasetSpec struct {
 	Points []Point
 }
 
-// CreateSheetsChart creates a new spreadsheet with the dataset, adds a chart, and returns IDs for embedding.
-// Returns: spreadsheetID, chartID, error.
-func CreateSheetsChart(ctx context.Context, sheetsSvc *sheets.Service, ds DatasetSpec) (string, int64, error) {
+// CreateSheetsChart writes the dataset into the given spreadsheet's sheet (creating it if needed),
+// clears prior data, wipes existing chart sheets, and creates a new chart. Returns: chartID, error.
+func CreateSheetsChart(ctx context.Context, sheetsSvc *sheets.Service, spreadsheetID string, sheetTitle string, ds DatasetSpec) (int64, error) {
 	if sheetsSvc == nil {
-		return "", 0, fmt.Errorf("sheetsSvc is nil")
+		return 0, fmt.Errorf("sheetsSvc is nil")
+	}
+	if strings.TrimSpace(spreadsheetID) == "" {
+		return 0, fmt.Errorf("spreadsheetID is required")
+	}
+	if strings.TrimSpace(sheetTitle) == "" {
+		sheetTitle = "Data"
 	}
 	if len(ds.Points) == 0 {
-		return "", 0, fmt.Errorf("no points to chart")
+		return 0, fmt.Errorf("no points to chart")
 	}
 
-	// Create spreadsheet with a single data sheet named "Data"
-	spreadsheet, err := sheetsSvc.Spreadsheets.Create(&sheets.Spreadsheet{
-		Properties: &sheets.SpreadsheetProperties{Title: nonEmpty(ds.Title, "Dataset")},
-		Sheets: []*sheets.Sheet{
-			{Properties: &sheets.SheetProperties{Title: "Data"}},
-		},
-	}).Context(ctx).Do()
+	// Ensure sheet exists, get its ID
+	sheetID, err := ensureGridSheet(ctx, sheetsSvc, spreadsheetID, sheetTitle)
 	if err != nil {
-		return "", 0, fmt.Errorf("create spreadsheet: %w", err)
+		return 0, err
 	}
-	spreadsheetID := spreadsheet.SpreadsheetId
-	if spreadsheetID == "" || len(spreadsheet.Sheets) == 0 || spreadsheet.Sheets[0].Properties == nil {
-		return "", 0, fmt.Errorf("invalid spreadsheet create response")
+
+	// Clear previous values on the target sheet
+	_, err = sheetsSvc.Spreadsheets.Values.Clear(spreadsheetID, sheetTitle+"!A:Z", &sheets.ClearValuesRequest{}).Context(ctx).Do()
+	if err != nil {
+		return 0, fmt.Errorf("clear values: %w", err)
 	}
-	sheetID := spreadsheet.Sheets[0].Properties.SheetId
-	if sheetID == 0 {
-		return "", 0, fmt.Errorf("missing sheet id")
+
+	// Wipe previous chart sheets
+	if err := deleteAllChartSheets(ctx, sheetsSvc, spreadsheetID); err != nil {
+		return 0, err
 	}
 
 	// Prepare typed values then convert at the boundary
@@ -64,8 +69,8 @@ func CreateSheetsChart(ctx context.Context, sheetsSvc *sheets.Service, ds Datase
 	}
 	values := makeCells(labels, headerValue, nums)
 	vr := &sheets.ValueRange{Values: values}
-	if _, err := sheetsSvc.Spreadsheets.Values.Update(spreadsheetID, "Data!A1:B", vr).ValueInputOption("RAW").Context(ctx).Do(); err != nil {
-		return "", 0, fmt.Errorf("write values: %w", err)
+	if _, err := sheetsSvc.Spreadsheets.Values.Update(spreadsheetID, sheetTitle+"!A1:B", vr).ValueInputOption("RAW").Context(ctx).Do(); err != nil {
+		return 0, fmt.Errorf("write values: %w", err)
 	}
 
 	// Define chart type
@@ -104,13 +109,14 @@ func CreateSheetsChart(ctx context.Context, sheetsSvc *sheets.Service, ds Datase
 	breq := &sheets.BatchUpdateSpreadsheetRequest{Requests: []*sheets.Request{{AddChart: addChartReq}}}
 	bresp, err := sheetsSvc.Spreadsheets.BatchUpdate(spreadsheetID, breq).Context(ctx).Do()
 	if err != nil {
-		return "", 0, fmt.Errorf("batch update (add chart): %w", err)
+		return 0, fmt.Errorf("batch update (add chart): %w", err)
 	}
 	if bresp == nil || len(bresp.Replies) == 0 || bresp.Replies[0].AddChart == nil || bresp.Replies[0].AddChart.Chart == nil {
-		return "", 0, fmt.Errorf("missing add chart reply")
+		return 0, fmt.Errorf("missing add chart reply")
 	}
 	chartID := bresp.Replies[0].AddChart.Chart.ChartId
-	return spreadsheetID, chartID, nil
+
+	return chartID, nil
 }
 
 // BuildEmbedRequests creates Slides requests to embed the given Sheets chart into a slide.
@@ -170,4 +176,62 @@ func makeCells(labels []string, header string, nums []float64) [][]interface{} {
 		out = append(out, []interface{}{labels[i], nums[i]}) //nolint
 	}
 	return out
+}
+
+func ensureGridSheet(ctx context.Context, sheetsSvc *sheets.Service, spreadsheetID, sheetTitle string) (int64, error) {
+	// Try to find existing sheet
+	ss, err := sheetsSvc.Spreadsheets.Get(spreadsheetID).
+		Fields("sheets(properties(sheetId,title,sheetType))").
+		Context(ctx).
+		Do()
+	if err != nil {
+		return 0, fmt.Errorf("get spreadsheet: %w", err)
+	}
+	for _, sh := range ss.Sheets {
+		if sh != nil && sh.Properties != nil && sh.Properties.Title == sheetTitle {
+			return sh.Properties.SheetId, nil
+		}
+	}
+
+	// Create sheet
+	bu := &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: []*sheets.Request{
+			{AddSheet: &sheets.AddSheetRequest{Properties: &sheets.SheetProperties{Title: sheetTitle}}},
+		},
+	}
+	resp, err := sheetsSvc.Spreadsheets.BatchUpdate(spreadsheetID, bu).Context(ctx).Do()
+	if err != nil {
+		return 0, fmt.Errorf("add sheet %q: %w", sheetTitle, err)
+	}
+	if resp == nil || len(resp.Replies) == 0 || resp.Replies[0].AddSheet == nil || resp.Replies[0].AddSheet.Properties == nil {
+		return 0, fmt.Errorf("missing add sheet reply")
+	}
+	return resp.Replies[0].AddSheet.Properties.SheetId, nil
+}
+
+func deleteAllChartSheets(ctx context.Context, sheetsSvc *sheets.Service, spreadsheetID string) error {
+	ss, err := sheetsSvc.Spreadsheets.Get(spreadsheetID).
+		Fields("sheets(properties(sheetId,sheetType))").
+		Context(ctx).
+		Do()
+	if err != nil {
+		return fmt.Errorf("get spreadsheet (for chart wipe): %w", err)
+	}
+	var reqs []*sheets.Request
+	for _, sh := range ss.Sheets {
+		if sh == nil || sh.Properties == nil {
+			continue
+		}
+		if strings.EqualFold(sh.Properties.SheetType, "CHART") {
+			reqs = append(reqs, &sheets.Request{DeleteSheet: &sheets.DeleteSheetRequest{SheetId: sh.Properties.SheetId}})
+		}
+	}
+	if len(reqs) == 0 {
+		return nil
+	}
+	_, err = sheetsSvc.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{Requests: reqs}).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("delete chart sheets: %w", err)
+	}
+	return nil
 }

@@ -15,7 +15,6 @@ import (
 
 	"github.com/joho/godotenv"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 	"google.golang.org/api/slides/v1"
@@ -63,6 +62,7 @@ func main() {
 	maxTopics := flag.Int("max", 5, "Max topics (<=5)")
 	model := flag.String("model", "gemini-2.0-flash", "Gemini model to use")
 	presentationID := flag.String("presentation-id", "", "Google Slides presentation ID to edit (optional)")
+	sheetID := flag.String("sheet-id", "", "Google Sheets spreadsheet ID to use for charts (required when --presentation-id is set)")
 	flag.Parse()
 
 	if *subject == "" {
@@ -148,7 +148,7 @@ func main() {
 		var sheetsSvc *sheets.Service
 
 		if userEmail != "" {
-			config, err := google.JWTConfigFromJSON(credsBytes, slides.PresentationsScope, drive.DriveScope, sheets.SpreadsheetsScope)
+			config, err := google.JWTConfigFromJSON(credsBytes, slides.PresentationsScope, sheets.SpreadsheetsScope)
 			if err != nil {
 				log.Printf("google.JWTConfigFromJSON: %v", err)
 				return
@@ -168,7 +168,7 @@ func main() {
 		} else {
 			opts := []option.ClientOption{
 				option.WithCredentialsJSON(credsBytes),
-				option.WithScopes(slides.PresentationsScope, drive.DriveScope, sheets.SpreadsheetsScope),
+				option.WithScopes(slides.PresentationsScope, sheets.SpreadsheetsScope),
 			}
 			slidesSvc, err = slides.NewService(ctx, opts...)
 			if err != nil {
@@ -180,6 +180,7 @@ func main() {
 				log.Printf("sheets.NewService: %v", err)
 				return
 			}
+			// no drive service needed; we do not create/move files anymore
 		}
 
 		// Map topics to RichTopic (with optional dataset) and write with charts
@@ -198,7 +199,11 @@ func main() {
 			}
 			rich = append(rich, rt)
 		}
-		if err := presentation.WriteTopicsWithCharts(ctx, slidesSvc, sheetsSvc, *presentationID, rich); err != nil {
+		if *sheetID == "" {
+			log.Printf("--sheet-id is required when --presentation-id is set")
+			return
+		}
+		if err := presentation.WriteTopicsWithCharts(ctx, slidesSvc, sheetsSvc, *sheetID, *presentationID, rich); err != nil {
 			log.Printf("WriteTopicsWithCharts: %v", err)
 		}
 		return

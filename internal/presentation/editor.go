@@ -74,7 +74,7 @@ func WriteTopics(ctx context.Context, svc *slides.Service, presentationID string
 		}})
 	}
 
-	for i := range need {
+	for i := 0; i < need; i++ {
 		slideID := targetSlideIDs[i]
 		suffix := uuid.New().String()[:8]
 		titleID := fmt.Sprintf("auto_title_%d_%s", i, suffix)
@@ -136,7 +136,7 @@ func WriteTopics(ctx context.Context, svc *slides.Service, presentationID string
 
 // WriteTopicsWithCharts behaves like WriteTopics but also embeds a chart for any topic with a dataset.
 // It requires both Slides and Sheets services.
-func WriteTopicsWithCharts(ctx context.Context, slidesSvc *slides.Service, sheetsSvc *sheets.Service, presentationID string, topics []RichTopic) error {
+func WriteTopicsWithCharts(ctx context.Context, slidesSvc *slides.Service, sheetsSvc *sheets.Service, spreadsheetID string, presentationID string, topics []RichTopic) error {
 	if len(topics) == 0 {
 		return nil
 	}
@@ -181,7 +181,7 @@ func WriteTopicsWithCharts(ctx context.Context, slidesSvc *slides.Service, sheet
 		}})
 	}
 
-	for i := range need {
+	for i := 0; i < need; i++ {
 		slideID := targetSlideIDs[i]
 		suffix := uuid.New().String()[:8]
 		titleID := fmt.Sprintf("auto_title_%d_%s", i, suffix)
@@ -226,13 +226,15 @@ func WriteTopicsWithCharts(ctx context.Context, slidesSvc *slides.Service, sheet
 		bodyRequests := processor.ToSlidesRequests(bodySegments, bodyID)
 		requests = append(requests, bodyRequests...)
 
-		// If dataset present, create chart in Sheets and embed into this slide
+		// If dataset present, write data to provided spreadsheet and embed the chart
 		if topics[i].Dataset != nil && len(topics[i].Dataset.Points) > 0 {
 			ds := charts.DatasetSpec{Title: topics[i].Dataset.Title, Unit: topics[i].Dataset.Unit, Type: topics[i].Dataset.Type}
 			for _, p := range topics[i].Dataset.Points {
 				ds.Points = append(ds.Points, charts.Point{Label: p.Label, Value: p.Value})
 			}
-			spreadsheetID, chartID, err := charts.CreateSheetsChart(ctx, sheetsSvc, ds)
+			// Use a per-topic sheet title to avoid collisions
+			perSheet := fmt.Sprintf("Data_%d", i+1)
+			chartID, err := charts.CreateSheetsChart(ctx, sheetsSvc, spreadsheetID, perSheet, ds)
 			if err != nil {
 				return fmt.Errorf("create sheets chart for topic %q: %w", topics[i].Title, err)
 			}
