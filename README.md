@@ -3,13 +3,14 @@
 Minimal Go CLI and helpers that:
 - Generates up to five summarized topics using Gemini and prints strict JSON
 - Emits lightweight formatting markup in the summaries (bold + bullets)
-- Optionally edits an existing Google Slides deck and writes one slide per topic, converting the markup into Slides formatting (bold text + bullet lists)
+- Optionally edits an existing Google Slides deck and writes three slides per topic (Title+Image, Summary, Chart), converting the markup into Slides formatting (bold text + bullets)
+- Embeds charts by writing data to an existing Google Sheets spreadsheet (per-topic `Data_N` tabs)
 - Includes an image utility to generate a picture via the Gemini image preview model
 
 ### Requirements
 - Go 1.24+
 - Gemini API key
-- Google Cloud project with Slides API enabled (for editing)
+- Google Cloud project with Slides and Sheets APIs enabled (for editing)
 
 ### Install
 ```bash
@@ -22,13 +23,17 @@ go build
 GEMINI_API_KEY=your_gemini_key
 # or
 GOOGLE_API_KEY=your_gemini_key
+GOOGLE_APPLICATION_CREDENTIALS=E:\path\to\credentials.json
+
+# Optional: Custom Search for images
+CSE_API_KEY=your_cse_key
+CSE_CX=your_cse_engine_id
+
+# Optional: default image fallback (HTTPS URL)
+DEFAULT_IMAGE_URL=https://t3.ftcdn.net/jpg/05/79/68/24/360_F_579682465_CBq4AWAFmFT1otwioF5X327rCjkVICyH.jpg
 ```
 
-- For Slides editing (service account or ADC):
-```bash
-# Service account JSON file path
-GOOGLE_APPLICATION_CREDENTIALS=E:\path\to\credentials.json
-```
+For Slides editing you can use a service account JSON (`GOOGLE_APPLICATION_CREDENTIALS`) or Application Default Credentials.
 
 ### Usage
 - Generate topics (JSON only):
@@ -36,9 +41,16 @@ GOOGLE_APPLICATION_CREDENTIALS=E:\path\to\credentials.json
 go run . --subject "Tips for good dental hygiene" --audience "children" --tone "slightly serious"
 ```
 
-- Generate and write to an existing Slides file (formatted):
+- Generate and write to an existing Slides + Sheets (formatted, images + charts):
 ```bash
-go run . --subject "AI in Healthcare" --audience "Clinicians" --presentation-id YOUR_FILE_ID
+go run . \
+  --subject "AI in Healthcare" \
+  --audience "Clinicians" \
+  --tone "concise" \
+  --presentation-id <SLIDES_ID> \
+  --sheet-id <SHEET_ID> \
+  --cse-key $CSE_API_KEY --cse-cx $CSE_CX \
+  --img-size large --img-type photo --img-safe active
 ```
 
 Flags:
@@ -47,6 +59,9 @@ Flags:
 - `--max` (default 5, capped at 5)
 - `--model` (default `gemini-2.0-flash`)
 - `--presentation-id` (edit existing deck)
+- `--sheet-id` (required when `--presentation-id` is set; target spreadsheet for charts)
+- Image search (optional): `--cse-key`, `--cse-cx`, `--img-size`, `--img-type`, `--img-color-type`, `--img-dominant`, `--img-rights`, `--img-safe`
+- Image fallback: `--default-image-url` (HTTPS URL)
 
 ### Output shape
 ```json
@@ -80,9 +95,10 @@ Example summary value:
 ```
 
 When a Slides `presentation-id` is provided, the program:
-- Inserts plain text into the slide text boxes
-- Applies bold to ranges wrapped in `**` (markers are removed)
-- Turns bullet lines into Slides bullets; `◦` becomes a sub-bullet preset
+- Wipes all existing slides
+- For each topic, creates three slides in order: Title+Image, Summary, Chart (if dataset present)
+- Converts markup to formatting (bold ranges and bullets)
+- Writes dataset to `Data_N` sheet tabs and embeds a chart
 
 ### Tests
 Included tests:
@@ -102,7 +118,10 @@ set GOOGLE_APPLICATION_CREDENTIALS=E:\path\to\credentials.json
 go test ./...
 ```
 
-### Image generation utility
+### Image search and image generation
+Image search uses Google Custom Search (if configured) to fetch up to 5 candidate images per topic, scores them by topic-term match, validates via HTTPS HEAD, and inserts the best image or falls back to a default HTTPS placeholder.
+
+The `internal/picturegen` package provides a helper to call `gemini-2.5-flash-image-preview` and return image bytes for a text prompt. See `internal/picturegen/picturegen_test.go` for an end-to-end example that writes a PNG under `tmp_test_output/`.
 The `internal/picturegen` package provides a helper to call `gemini-2.5-flash-image-preview` and return image bytes for a text prompt. See `internal/picturegen/picturegen_test.go` for an end-to-end example that writes a PNG under `tmp_test_output/`.
 
 Run only this package's tests:
@@ -120,10 +139,9 @@ Data shape:
 
 You can build a `*slides.Service` using your own auth, or via `internal/slidesclient` helpers (service account JSON/file).
 
-### Notes
-- Topics are capped at 5; summaries trimmed.
-- If the model wraps JSON in code fences, the program strips them and retries once if parsing fails.
-- Slide layout used is `BLANK`; text boxes are positioned with fixed transforms.
-- One sub-bullet level is supported (`◦`).
-- Title fields also support the same markup.
+### Guardrails & edge cases
+- Inputs are validated and sanitized: numeric-only detection, gibberish check, length limits, prompt-injection phrase stripping.
+- A cheap LLM pre-check classifies inputs (TRUE/FALSE) for gibberish/jailbreak; TRUE aborts early.
+- Non-JSON outputs trigger a single strict-JSON retry.
+- See `EDGE_CASES.md` for QA flowchart and expected outcomes.
 
