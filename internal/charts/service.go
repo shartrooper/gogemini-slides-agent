@@ -178,6 +178,70 @@ func makeCells(labels []string, header string, nums []float64) [][]interface{} {
 	return out
 }
 
+// CleanupSpreadsheetForCharts deletes prior generated sheets: all CHART-type tabs
+// and any grid sheets named with the prefix "Data_". Ensures at least one grid
+// sheet remains to satisfy Sheets constraints.
+func CleanupSpreadsheetForCharts(ctx context.Context, sheetsSvc *sheets.Service, spreadsheetID string) error {
+	if strings.TrimSpace(spreadsheetID) == "" {
+		return fmt.Errorf("spreadsheetID is required")
+	}
+	ss, err := sheetsSvc.Spreadsheets.Get(spreadsheetID).
+		Fields("sheets(properties(sheetId,title,sheetType))").
+		Context(ctx).
+		Do()
+	if err != nil {
+		return fmt.Errorf("get spreadsheet for cleanup: %w", err)
+	}
+	var gridDeleteIDs []int64
+	var chartDeleteIDs []int64
+	for _, sh := range ss.Sheets {
+		if sh == nil || sh.Properties == nil {
+			continue
+		}
+		if strings.EqualFold(sh.Properties.SheetType, "CHART") {
+			chartDeleteIDs = append(chartDeleteIDs, sh.Properties.SheetId)
+			continue
+		}
+		if strings.HasPrefix(sh.Properties.Title, "Data_") {
+			gridDeleteIDs = append(gridDeleteIDs, sh.Properties.SheetId)
+		}
+	}
+	// Ensure at least one grid sheet remains
+	if len(gridDeleteIDs) > 0 && len(gridDeleteIDs) == countGridSheets(ss) {
+		gridDeleteIDs = gridDeleteIDs[1:]
+	}
+	var reqs []*sheets.Request
+	for _, id := range chartDeleteIDs {
+		id := id
+		reqs = append(reqs, &sheets.Request{DeleteSheet: &sheets.DeleteSheetRequest{SheetId: id}})
+	}
+	for _, id := range gridDeleteIDs {
+		id := id
+		reqs = append(reqs, &sheets.Request{DeleteSheet: &sheets.DeleteSheetRequest{SheetId: id}})
+	}
+	if len(reqs) == 0 {
+		return nil
+	}
+	_, err = sheetsSvc.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{Requests: reqs}).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("cleanup spreadsheet: %w", err)
+	}
+	return nil
+}
+
+func countGridSheets(ss *sheets.Spreadsheet) int {
+	n := 0
+	for _, sh := range ss.Sheets {
+		if sh == nil || sh.Properties == nil {
+			continue
+		}
+		if !strings.EqualFold(sh.Properties.SheetType, "CHART") {
+			n++
+		}
+	}
+	return n
+}
+
 func ensureGridSheet(ctx context.Context, sheetsSvc *sheets.Service, spreadsheetID, sheetTitle string) (int64, error) {
 	// Try to find existing sheet
 	ss, err := sheetsSvc.Spreadsheets.Get(spreadsheetID).

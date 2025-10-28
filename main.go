@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"gogemini-practices/internal/imagesearch"
 	"gogemini-practices/internal/presentation"
 
 	"github.com/joho/godotenv"
@@ -63,6 +64,14 @@ func main() {
 	model := flag.String("model", "gemini-2.0-flash", "Gemini model to use")
 	presentationID := flag.String("presentation-id", "", "Google Slides presentation ID to edit (optional)")
 	sheetID := flag.String("sheet-id", "", "Google Sheets spreadsheet ID to use for charts (required when --presentation-id is set)")
+	cseKey := flag.String("cse-key", "", "Google Custom Search API key (optional, default from env CSE_API_KEY)")
+	cseCX := flag.String("cse-cx", "", "Google Custom Search Engine ID (optional, default from env CSE_CX)")
+	imgSize := flag.String("img-size", "large", "Image size for slides (icon|small|medium|large|xlarge|xxlarge|huge)")
+	imgType := flag.String("img-type", "photo", "Image type (clipart|face|lineart|news|photo)")
+	imgColorType := flag.String("img-color-type", "color", "Image color type (mono|gray|color)")
+	imgDominant := flag.String("img-dominant", "", "Image dominant color (red|orange|yellow|green|teal|blue|purple|pink|white|gray|black|brown)")
+	rights := flag.String("img-rights", "", "Image license rights filter (e.g., cc_publicdomain|cc_attribute|cc_sharealike|cc_noncommercial|cc_nonderived)")
+	safe := flag.String("img-safe", "active", "Safe search level (off|medium|active)")
 	flag.Parse()
 
 	if *subject == "" {
@@ -183,10 +192,21 @@ func main() {
 			// no drive service needed; we do not create/move files anymore
 		}
 
+		// Image search config
+		cseAPIKey := firstNonEmpty(*cseKey, os.Getenv("CSE_API_KEY"))
+		cseEngine := firstNonEmpty(*cseCX, os.Getenv("CSE_CX"))
+
 		// Map topics to RichTopic (with optional dataset) and write with charts
 		var rich []presentation.RichTopic
 		for _, t := range topics {
 			rt := presentation.RichTopic{Title: t.Topic, Summary: t.Summary}
+			if cseAPIKey != "" && cseEngine != "" {
+				// best-effort image search per topic
+				img, _ := imagesearch.SearchBestImage(ctx, cseAPIKey, cseEngine, t.Topic, imagesearch.Options{
+					ImgSize: *imgSize, ImgType: *imgType, ImgColorType: *imgColorType, ImgDominantColor: *imgDominant, Rights: *rights, Safe: *safe, Num: 5,
+				})
+				rt.ImageURL = img
+			}
 			if t.Dataset != nil && len(t.Dataset.Points) > 0 {
 				cd := &presentation.ChartDataset{Title: t.Dataset.Title, Unit: t.Dataset.Unit, Type: t.Dataset.Type}
 				for _, p := range t.Dataset.Points {
