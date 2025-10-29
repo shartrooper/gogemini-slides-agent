@@ -1,49 +1,82 @@
 ### Edge Cases and Guardrails (QA Flowchart)
 
 ```mermaid
-flowchart TD
-  A[Start] --> B[Normalize and sanitize inputs]
-  B --> C{Numeric-only? (subject/audience/tone)}
-  C -- Yes --> X1[Exit: numeric-only input]
-  C -- No --> D{Gibberish? (heuristic checks)}
-  D -- Yes --> X2[Exit: gibberish input]
-  D -- No --> E[Apply length limits: subject 120, audience 160, tone 60]
-  E --> F[Remove adversarial phrases (prompt-injection sanitization)]
-  F --> F1[LLM classifier TRUE/FALSE (gibberish/jailbreak gate)]
-  F1 -- TRUE --> X3[Exit: model flagged inputs]
-  F1 -- FALSE --> G[Build prompt with safety note, schema, formatting rules]
-  G --> H[Call Gemini GenerateContent]
-  H --> I{Valid JSON?}
-  I -- No --> J[Retry with STRICT JSON prompt] --> I
-  I -- Yes --> K[Clamp topics to max (<=5), sanitize datasets]
+graph TD;
+  A[Start];
+  B[Normalize and sanitize inputs];
+  C{Numeric only inputs};
+  D{Gibberish heuristic};
+  E[Apply length limits: subject 120, audience 160, tone 60];
+  F[Strip adversarial phrases];
+  F1{LLM classifier TRUE or FALSE};
+  G[Build prompt with safety, schema, formatting rules];
+  H[Call Gemini GenerateContent];
+  I{Valid JSON};
+  J[Retry with STRICT JSON];
+  K[Clamp topics to max up to 5 and sanitize datasets];
+  L{Presentation ID provided};
+  M{Sheet ID provided};
+  N[Init Slides and Sheets clients];
+  O[Delete all existing slides];
+  P[Spreadsheet cleanup: delete CHART tabs and Data_N tabs];
+  Q{For each topic};
+  R[Create Title and Image slide];
+  R1{CSE configured};
+  R2[Search images up to five];
+  R3{Any image found};
+  R4[Validate image via HEAD];
+  R5[Insert image];
+  R6[Use fallback image URL];
+  S[Create Summary slide];
+  T{Dataset exists};
+  V[Write Data_N sheet, add chart tab, embed chart];
+  W[Commit BatchUpdate];
+  X1[Exit: numeric only input];
+  X2[Exit: gibberish input];
+  X3[Exit: model flagged inputs];
+  Y1[Print JSON only and exit];
+  Y2[Log and exit: sheet ID required];
+  Z[End];
 
-  K --> L{--presentation-id set?}
-  L -- No --> Y1[Print JSON only and exit]
-  L -- Yes --> M{--sheet-id provided?}
-  M -- No --> Y2[Log and exit: --sheet-id required]
-  M -- Yes --> N[Init Slides and Sheets clients]
-
-  N --> O[Delete ALL existing slides]
-  O --> P[Spreadsheet cleanup: delete CHART tabs and Data_* tabs]
-  P --> Q{For each topic}
-
-  Q --> R[Create Title + Image slide]
-  R --> R1{CSE configured?}
-  R1 -- Yes --> R2[Search images (num<=5) with size/type/color/safe/rights]
-  R2 --> R3{Found?}
-  R3 -- Yes --> R4[Validate via HEAD; insert or fallback]
-  R3 -- No --> R6[Use fallback image URL]
-  R4 -->|Invalid/broken| R6
-  R4 -->|Valid| R5[Insert image]
-  R6 --> R5
-  R1 -- No --> R5
-  R5 --> S[Create Summary slide]
-  S --> T{Dataset exists?}
-  T -- No --> U[Next topic]
-  T -- Yes --> V[Write per-topic sheet (clear A:Z), add chart tab, embed chart]
-  V --> U
-  U --> W[Commit BatchUpdate]
-  W --> Z[End]
+  A --> B;
+  B --> C;
+  C -- Yes --> X1;
+  C -- No --> D;
+  D -- Yes --> X2;
+  D -- No --> E;
+  E --> F;
+  F --> F1;
+  F1 -- TRUE --> X3;
+  F1 -- FALSE --> G;
+  G --> H;
+  H --> I;
+  I -- No --> J;
+  J --> I;
+  I -- Yes --> K;
+  K --> L;
+  L -- No --> Y1;
+  L -- Yes --> M;
+  M -- No --> Y2;
+  M -- Yes --> N;
+  N --> O;
+  O --> P;
+  P --> Q;
+  Q --> R;
+  R --> R1;
+  R1 -- Yes --> R2;
+  R2 --> R3;
+  R3 -- Yes --> R4;
+  R4 --> R5;
+  R3 -- No --> R6;
+  R6 --> R5;
+  R1 -- No --> R5;
+  R5 --> S;
+  S --> T;
+  T -- No --> Q;
+  T -- Yes --> V;
+  V --> Q;
+  Q --> W;
+  W --> Z;
 ```
 
 ### QA Edge Cases and Expected Outcomes
