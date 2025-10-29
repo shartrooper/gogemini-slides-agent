@@ -2,34 +2,34 @@
 
 ```mermaid
 flowchart TD
-  A[Start] --> B[Normalize + sanitize inputs]
-  B --> C{Numeric-only?<br/>(subject/audience/tone)}
+  A[Start] --> B[Normalize and sanitize inputs]
+  B --> C{Numeric-only? (subject/audience/tone)}
   C -- Yes --> X1[Exit: numeric-only input]
-  C -- No --> D{Gibberish?<br/>(heuristic checks)}
+  C -- No --> D{Gibberish? (heuristic checks)}
   D -- Yes --> X2[Exit: gibberish input]
-  D -- No --> E[Apply length limits<br/>subject: 120, audience: 160, tone: 60]
-  E --> F[Remove adversarial phrases<br/>(prompt-injection sanitization)]
-  F --> F1[LLM classifier TRUE/FALSE<br/>(gibberish/jailbreak gate)]
+  D -- No --> E[Apply length limits: subject 120, audience 160, tone 60]
+  E --> F[Remove adversarial phrases (prompt-injection sanitization)]
+  F --> F1[LLM classifier TRUE/FALSE (gibberish/jailbreak gate)]
   F1 -- TRUE --> X3[Exit: model flagged inputs]
-  F1 -- FALSE --> G[Build prompt with safety note,<br/>schema, formatting rules]
+  F1 -- FALSE --> G[Build prompt with safety note, schema, formatting rules]
   G --> H[Call Gemini GenerateContent]
   H --> I{Valid JSON?}
   I -- No --> J[Retry with STRICT JSON prompt] --> I
-  I -- Yes --> K[Clamp topics to max (≤5), sanitize datasets]
+  I -- Yes --> K[Clamp topics to max (<=5), sanitize datasets]
 
   K --> L{--presentation-id set?}
   L -- No --> Y1[Print JSON only and exit]
   L -- Yes --> M{--sheet-id provided?}
   M -- No --> Y2[Log and exit: --sheet-id required]
-  M -- Yes --> N[Init Slides & Sheets clients]
+  M -- Yes --> N[Init Slides and Sheets clients]
 
-  N --> O[Delete ALL existing slides in presentation]
-  O --> P[Spreadsheet cleanup:<br/>delete CHART tabs and Data_* tabs]<br/>
+  N --> O[Delete ALL existing slides]
+  O --> P[Spreadsheet cleanup: delete CHART tabs and Data_* tabs]
   P --> Q{For each topic}
 
   Q --> R[Create Title + Image slide]
   R --> R1{CSE configured?}
-  R1 -- Yes --> R2[Search images (num≤5) with size/type/color/safe/rights]
+  R1 -- Yes --> R2[Search images (num<=5) with size/type/color/safe/rights]
   R2 --> R3{Found?}
   R3 -- Yes --> R4[Validate via HEAD; insert or fallback]
   R3 -- No --> R6[Use fallback image URL]
@@ -40,7 +40,7 @@ flowchart TD
   R5 --> S[Create Summary slide]
   S --> T{Dataset exists?}
   T -- No --> U[Next topic]
-  T -- Yes --> V[Write per-topic sheet (clear A:Z),<br/>add chart tab, embed chart]
+  T -- Yes --> V[Write per-topic sheet (clear A:Z), add chart tab, embed chart]
   V --> U
   U --> W[Commit BatchUpdate]
   W --> Z[End]
